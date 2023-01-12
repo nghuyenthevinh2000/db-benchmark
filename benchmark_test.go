@@ -11,7 +11,7 @@ var kvStore storetypes.CommitKVStore
 
 func init() {
 	var err error
-	kvStore, err = GetKVStore()
+	kvStore, err = GetIAVLKVStore()
 	if err != nil {
 		panic(err.Error())
 	}

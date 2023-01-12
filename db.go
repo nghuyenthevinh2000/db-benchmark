@@ -11,7 +11,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-func GetKVStore() (storetypes.CommitKVStore, error) {
+func GetDB() (dbm.DB, error) {
 	name := fmt.Sprintf("testdb")
 	dir, err := os.Getwd()
 	if err != nil {
@@ -20,6 +20,15 @@ func GetKVStore() (storetypes.CommitKVStore, error) {
 
 	fmt.Printf("you are getting backend = %v \n", sdk.DBBackend)
 	db, err := dbm.NewDB(name, dbm.BackendType(sdk.DBBackend), dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func GetIAVLKVStore() (storetypes.CommitKVStore, error) {
+	db, err := GetDB()
 	if err != nil {
 		return nil, err
 	}
