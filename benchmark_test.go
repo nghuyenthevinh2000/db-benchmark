@@ -48,3 +48,25 @@ func BenchmarkOrderedKeys(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkUnOrderedKeys(b *testing.B) {
+	// set 1000 keys (8bytes) of value (8bytes) to kv store
+	for _, v := range table {
+		b.Run(fmt.Sprintf("running unordered keysNum = %v with dataByteSize = %v bytes", v.keysNum, v.dataByteSize), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				// writing action
+				PopulateStoreWithUnorderedKeys(v.keysNum, v.dataByteSize, kvStore)
+
+				// commit store to disk
+				kvStore.Commit()
+
+				// reading action
+				iter := kvStore.Iterator(nil, nil)
+				for ; iter.Valid(); iter.Next() {
+					iter.Value()
+				}
+				iter.Close()
+			}
+		})
+	}
+}
