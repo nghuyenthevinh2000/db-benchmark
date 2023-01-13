@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	Bech32PrefixAccAddr = "baby"
+	Bech32PrefixAccAddr = "terra"
 )
 
 var (

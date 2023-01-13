@@ -24,27 +24,6 @@ import (
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-var (
-	ModuleBasics = module.NewBasicManager(
-		auth.AppModuleBasic{},
-		params.AppModuleBasic{},
-	)
-
-	Modules = []string{
-		authtypes.ModuleName,
-		paramstypes.ModuleName,
-	}
-
-	Keys = sdk.NewKVStoreKeys(
-		authtypes.StoreKey,
-		paramstypes.StoreKey,
-	)
-
-	Tkeys = sdk.NewTransientStoreKeys(
-		paramstypes.TStoreKey,
-	)
-)
-
 type App struct {
 	// store group
 	store             *storemulti.Store
