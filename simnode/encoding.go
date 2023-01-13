@@ -1,4 +1,4 @@
-package main
+package simnode
 
 import (
 	"github.com/cosmos/cosmos-sdk/client"

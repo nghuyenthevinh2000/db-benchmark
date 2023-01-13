@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/nghuyenthevinh2000/db-benchmark/simnode"
 )
 
 var kvStore storetypes.CommitKVStore
 
 func init() {
 	var err error
-	kvStore, err = GetIAVLKVStore()
+	kvStore, err = simnode.GetIAVLKVStore()
 	if err != nil {
 		panic(err.Error())
 	}

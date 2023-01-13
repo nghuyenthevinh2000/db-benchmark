@@ -1,4 +1,4 @@
-package main
+package simnode
 
 import "encoding/json"
 

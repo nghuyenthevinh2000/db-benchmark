@@ -1,17 +1,16 @@
-package main
+package simnode
 
 import (
 	"encoding/json"
 	"os"
 
-	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/node"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	sm "github.com/tendermint/tendermint/state"
 	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/std"
 	storemulti "github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/store/types"
@@ -20,46 +19,59 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/cosmos/cosmos-sdk/x/params"
+	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
-
-//============Tendermint============
-
-func TendermintHandleGenesis() (dbm.DB, sm.State, *tmtypes.GenesisDoc, error) {
-	db, err := GetDB()
-	if err != nil {
-		return nil, sm.State{}, nil, err
-	}
-
-	config := &config.Config{}
-	config.Genesis = "genesis.json"
-	genesisDocProvider := node.DefaultGenesisDocProviderFunc(config)
-
-	state, genDoc, err := node.LoadStateFromDBOrGenesisDocProvider(db, genesisDocProvider)
-	if err != nil {
-		return nil, sm.State{}, nil, err
-	}
-
-	return db, state, genDoc, nil
-}
-
-//============Cosmos============
 
 var (
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
+		params.AppModuleBasic{},
 	)
 
 	Modules = []string{
 		authtypes.ModuleName,
+		paramstypes.ModuleName,
 	}
 
 	Keys = sdk.NewKVStoreKeys(
 		authtypes.StoreKey,
+		paramstypes.StoreKey,
 	)
 
-	Encoding = GetEncodingConfig()
+	Tkeys = sdk.NewTransientStoreKeys(
+		paramstypes.TStoreKey,
+	)
 )
+
+type App struct {
+	legacyAmino       *codec.LegacyAmino
+	appCodec          codec.Codec
+	interfaceRegistry codectypes.InterfaceRegistry
+
+	// the module manager
+	mm *module.Manager
+
+	// keepers
+	AccountKeeper authkeeper.AccountKeeper
+	ParamsKeeper  paramskeeper.Keeper
+}
+
+// initParamsKeeper init params keeper and its subspaces
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+
+	for _, name := range Modules {
+		if name == paramstypes.ModuleName {
+			continue
+		}
+
+		paramsKeeper.Subspace(name)
+	}
+
+	return paramsKeeper
+}
 
 func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Store, map[string]*types.KVStoreKey, error) {
 	// get new db if there is no prior db
@@ -80,6 +92,10 @@ func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Sto
 		store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
 	}
 
+	for _, key := range Tkeys {
+		store.MountStoreWithDB(key, types.StoreTypeTransient, nil)
+	}
+
 	// load store to create new empty iavl store
 	if err := store.LoadLatestVersion(); err != nil {
 		return nil, nil, err
@@ -94,28 +110,37 @@ func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Sto
 	// get a basic module manager and init genesis
 	ctx := sdk.NewContext(store, tmproto.Header{}, false, logger)
 
-	mm := NewModuleManager()
+	app := NewApp()
 	for _, name := range Modules {
-		mm.Modules[name].InitGenesis(ctx, Encoding.Marshaler, genesisState[name])
+		app.mm.Modules[name].InitGenesis(ctx, app.appCodec, genesisState[name])
 	}
 
 	return store, Keys, nil
 }
 
-func NewModuleManager() *module.Manager {
-	appCodec := Encoding.Marshaler
+func NewApp() *App {
+	encoding := GetEncodingConfig()
 
-	accountKeeper := authkeeper.NewAccountKeeper(
-		appCodec, Keys[authtypes.StoreKey], paramtypes.Subspace{}, authtypes.ProtoBaseAccount, nil,
+	app := &App{
+		legacyAmino:       encoding.Amino,
+		appCodec:          encoding.Marshaler,
+		interfaceRegistry: encoding.InterfaceRegistry,
+	}
+
+	app.ParamsKeeper = initParamsKeeper(app.appCodec, app.legacyAmino, Keys[paramstypes.StoreKey], Tkeys[paramstypes.TStoreKey])
+
+	app.AccountKeeper = authkeeper.NewAccountKeeper(
+		app.appCodec, Keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, nil,
 	)
 
-	mm := module.NewManager(
-		auth.NewAppModule(appCodec, accountKeeper, nil),
+	app.mm = module.NewManager(
+		auth.NewAppModule(app.appCodec, app.AccountKeeper, nil),
+		params.NewAppModule(app.ParamsKeeper),
 	)
 
-	mm.SetOrderInitGenesis(Modules...)
+	app.mm.SetOrderInitGenesis(Modules...)
 
-	return mm
+	return app
 }
 
 func GetEncodingConfig() EncodingConfig {
@@ -126,4 +151,9 @@ func GetEncodingConfig() EncodingConfig {
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 
 	return encodingConfig
+}
+
+func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
+	subspace, _ := app.ParamsKeeper.GetSubspace(moduleName)
+	return subspace
 }
