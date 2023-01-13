@@ -46,9 +46,14 @@ var (
 )
 
 type App struct {
+	// store group
+	store             *storemulti.Store
 	legacyAmino       *codec.LegacyAmino
 	appCodec          codec.Codec
 	interfaceRegistry codectypes.InterfaceRegistry
+
+	// logger
+	logger log.Logger
 
 	// the module manager
 	mm *module.Manager
@@ -73,15 +78,8 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	return paramsKeeper
 }
 
-func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Store, map[string]*types.KVStoreKey, error) {
-	// get new db if there is no prior db
-	if db == nil {
-		var err error
-		db, err = GetDB()
-		if err != nil {
-			return nil, nil, err
-		}
-	}
+func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*App, error) {
+	InitConfig()
 
 	// create new Store
 	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
@@ -98,7 +96,7 @@ func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Sto
 
 	// load store to create new empty iavl store
 	if err := store.LoadLatestVersion(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// genesis state handling
@@ -110,18 +108,20 @@ func CosmosHandleGenesis(db dbm.DB, genDoc *tmtypes.GenesisDoc) (*storemulti.Sto
 	// get a basic module manager and init genesis
 	ctx := sdk.NewContext(store, tmproto.Header{}, false, logger)
 
-	app := NewApp()
+	app := NewApp(store)
+	app.logger = logger
 	for _, name := range Modules {
 		app.mm.Modules[name].InitGenesis(ctx, app.appCodec, genesisState[name])
 	}
 
-	return store, Keys, nil
+	return app, nil
 }
 
-func NewApp() *App {
+func NewApp(store *storemulti.Store) *App {
 	encoding := GetEncodingConfig()
 
 	app := &App{
+		store:             store,
 		legacyAmino:       encoding.Amino,
 		appCodec:          encoding.Marshaler,
 		interfaceRegistry: encoding.InterfaceRegistry,
