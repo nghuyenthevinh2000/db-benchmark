@@ -39,7 +39,7 @@ func TendermintHandleGenesis() (dbm.DB, sm.State, *tmtypes.GenesisDoc, error) {
 	}
 
 	config := &config.Config{}
-	config.Genesis = "genesis.json"
+	config.Genesis = "data/genesis.json"
 	config.RootDir = rootDir
 	genesisDocProvider := node.DefaultGenesisDocProviderFunc(config)
 
